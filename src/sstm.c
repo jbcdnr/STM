@@ -132,10 +132,12 @@ sstm_tx_cleanup()
 void
 sstm_tx_commit()
 {
-  if (sstm_meta.readers == NULL) {
+  if (sstm_meta.writers == NULL) {
+    clear_transaction();
     return;
   }
 
+  // TODO maybe wrong return check for CAS (if not bool)
   while (! CAS_U64(
     &sstm_meta_global.global_lock, 
     sstm_meta.snapshot, 
@@ -162,6 +164,7 @@ size_t validate() {
   printf("validate\n");
   while (1) {
     size_t time = sstm_meta_global.global_lock;
+    printf("validate -- %i\n", time);
     if((time & 1) != 0) {
       continue;
     }
@@ -169,10 +172,14 @@ size_t validate() {
     list_t* curr = sstm_meta.readers;
     while (curr != NULL) {
       if (*curr->address != curr->value) {
-        // TODO abort
+        printf("must abort validation\n");
+        TX_ABORT(1000);
+        return;
       }
       curr = curr->next;
     }
+
+    printf("validate -- 2\n");
 
     if (time == sstm_meta_global.global_lock) {
       printf("validate done\n");
