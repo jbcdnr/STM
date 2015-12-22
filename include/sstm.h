@@ -89,7 +89,7 @@ extern sstm_metadata_global_t sstm_meta_global;
       }							\
     do {			\
       sstm_meta.snapshot = sstm_meta_global;
-    } while ((sstm_meta.snapshot & 1) != 0) \
+    } while ((sstm_meta.snapshot & 1) != 0); \
   }
 
 #define TX_COMMIT()				\

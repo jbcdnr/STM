@@ -52,7 +52,7 @@ sstm_tx_load(volatile uintptr_t* addr)
 { 
   // check if written in addr and return value if so
   list_t* curr = sstm_meta.writers;
-  while (curr != null) {
+  while (curr != NULL) {
     if (curr->address == addr) {
       return curr->value;
     }
@@ -84,16 +84,16 @@ sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
 {
   // find addr if existing
   list_t* curr = sstm_meta.writers;
-  while (curr != null && curr->address != addr) {
+  while (curr != NULL && curr->address != addr) {
     curr = curr.next;
   }
 
   // update the value or create the update node
-  if (curr == null) {
+  if (curr == NULL) {
     list_t* newHead = (list_t*) malloc(sizeof(list_t)); // TODO check success ?
     newHead->address = addr;
     newHead->value = val;
-    newHead->next = null;
+    newHead->next = NULL;
     sstm_meta.writers = newHead;
   } else {
     curr->value = val;
@@ -118,7 +118,7 @@ sstm_tx_cleanup()
 void
 sstm_tx_commit()
 {
-  if (sstm_meta.readers == null) {
+  if (sstm_meta.readers == NULL) {
     return;
   }
 
@@ -131,7 +131,7 @@ sstm_tx_commit()
   }
 
   list_t* curr = sstm_meta.writers;
-  while (curr != null) {
+  while (curr != NULL) {
     *curr->address = curr->value
     curr = curr->next;
   }
@@ -152,7 +152,7 @@ size_t validate() {
     }
 
     list_t* curr = sstm_meta.readers;
-    while (curr != null) {
+    while (curr != NULL) {
       if (*curr->address != curr->value) {
         // TODO abort
       }
@@ -168,21 +168,21 @@ size_t validate() {
 void clear_transaction() {
   list_t* next;
   list_t* curr = sstm_meta.readers;
-  while (curr != null) {
+  while (curr != NULL) {
     next = curr->next;
     free(curr);
     curr = next;
   }
 
   curr = sstm_meta.writers;
-  while (curr != null) {
+  while (curr != NULL) {
     next = curr->next;
     free(curr);
     curr = next;
   }
 
-  sstm_meta.readers = null;
-  sstm_meta.writers = null;
+  sstm_meta.readers = NULL;
+  sstm_meta.writers = NULL;
 }
 
 

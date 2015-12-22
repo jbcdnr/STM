@@ -12,7 +12,7 @@ __thread unsigned long* seeds;
 /*
  * Useful macros to work with transactions. Note that, to use nested
  * transactions, one should check the environment returned by
- * stm_get_env() and only call sigsetjmp() if it is not null.
+ * stm_get_env() and only call sigsetjmp() if it is not NULL.
  */
 
 #define DEFAULT_DURATION                1
