@@ -17,6 +17,7 @@ extern "C" {
 
 #define TTAS
 #include "lock_if.h"
+#include "atomic_ops_if.h"
 
   /* **************************************************************************************************** */
   /* structures */
@@ -32,6 +33,7 @@ extern "C" {
 
   typedef struct sstm_metadata_global
   {
+    size_t global_lock;
     ptlock_t glock;
     size_t n_commits;
     size_t n_aborts;

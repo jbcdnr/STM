@@ -11,6 +11,11 @@ void
 sstm_start()
 {
   INIT_LOCK(&sstm_meta_global.glock);
+  sstm_meta_global.global_lock = 0;
+  CAS_U64(&sstm_meta_global.global_lock, 0, 1);
+  CAS_U64(&sstm_meta_global.global_lock, 0, 3);
+  CAS_U64(&sstm_meta_global.global_lock, 1, 5);
+  printf("%i\n", sstm_meta_global.global_lock);
 }
 
 /* terminates the TM runtime
