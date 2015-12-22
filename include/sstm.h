@@ -23,8 +23,20 @@ extern "C" {
   /* structures */
   /* **************************************************************************************************** */
 
+  struct list_t;
+  typedef struct list_t
+  {
+    uintptr_t* address;
+    uintptr_t value;
+    struct list_t *next;
+  } list_t;
+
   typedef struct sstm_metadata
   {
+    size_t snapshot;
+    list_t* readers;
+    list_t* writers;
+
     sigjmp_buf env;		/* Environment for setjmp/longjmp */
     size_t id;
     size_t n_commits;
@@ -34,7 +46,6 @@ extern "C" {
   typedef struct sstm_metadata_global
   {
     size_t global_lock;
-    ptlock_t glock;
     size_t n_commits;
     size_t n_aborts;
   } sstm_metadata_global_t;
@@ -73,11 +84,12 @@ extern sstm_metadata_global_t sstm_meta_global;
     short int reason;					\
     if ((reason = sigsetjmp(sstm_meta.env, 0)) != 0)	\
       {							\
-	UNLOCK(&sstm_meta_global.glock);		\
 	sstm_tx_cleanup();				\
 	PRINTD("|| restarting due to %d\n", reason);	\
       }							\
-    LOCK(&sstm_meta_global.glock);			\
+    do {			\
+      sstm_meta.snapshot = sstm_meta_global;
+    } while ((sstm_meta.snapshot & 1) != 0) \
   }
 
 #define TX_COMMIT()				\
@@ -139,8 +151,9 @@ extern sstm_metadata_global_t sstm_meta_global;
   */
   extern void sstm_tx_commit();
 
+  size_t validate();
 
-
+  void clear_transaction();
 
   /* **************************************************************************************************** */
   /* help functions */

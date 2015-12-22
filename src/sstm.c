@@ -10,12 +10,7 @@ sstm_metadata_global_t sstm_meta_global; /* global metadata */
 void
 sstm_start()
 {
-  INIT_LOCK(&sstm_meta_global.glock);
   sstm_meta_global.global_lock = 0;
-  CAS_U64(&sstm_meta_global.global_lock, 0, 1);
-  CAS_U64(&sstm_meta_global.global_lock, 0, 3);
-  CAS_U64(&sstm_meta_global.global_lock, 1, 5);
-  printf("%i\n", sstm_meta_global.global_lock);
 }
 
 /* terminates the TM runtime
@@ -54,8 +49,30 @@ sstm_thread_stop()
 */
 inline uintptr_t
 sstm_tx_load(volatile uintptr_t* addr)
-{
-  return *addr;
+{ 
+  // check if written in addr and return value if so
+  list_t* curr = sstm_meta.writers;
+  while (curr != null) {
+    if (curr->address == addr) {
+      return curr->value;
+    }
+    curr = curr->next;
+  }
+
+  uintptr_t val = *addr;
+  while (sstm_meta.snapshot != sstm_meta_global.global_lock) {
+    sstm_meta.snapshot = validate();
+    val = *addr;
+  }
+
+  // prepend (addr, val) to reading
+  list_t* newHead = (list_t*) malloc(sizeof(list_t)); // TODO check success ?
+  newHead->address = addr;
+  newHead->value = val;
+  newHead->next = sstm_meta.readers;
+  sstm_meta.readers = newHead;
+
+  return val;
 }
 
 /* transactionally writes val in addr
@@ -65,7 +82,22 @@ sstm_tx_load(volatile uintptr_t* addr)
 inline void
 sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
 {
-  *addr = val;
+  // find addr if existing
+  list_t* curr = sstm_meta.writers;
+  while (curr != null && curr->address != addr) {
+    curr = curr.next;
+  }
+
+  // update the value or create the update node
+  if (curr == null) {
+    list_t* newHead = (list_t*) malloc(sizeof(list_t)); // TODO check success ?
+    newHead->address = addr;
+    newHead->value = val;
+    newHead->next = null;
+    sstm_meta.writers = newHead;
+  } else {
+    curr->value = val;
+  }
 }
 
 /* cleaning up in case of an abort 
@@ -74,6 +106,7 @@ sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
 void
 sstm_tx_cleanup()
 {
+  clear_transaction();
   sstm_alloc_on_abort();
   sstm_meta.n_aborts++;
 }
@@ -85,9 +118,71 @@ sstm_tx_cleanup()
 void
 sstm_tx_commit()
 {
-  UNLOCK(&sstm_meta_global.glock);	       
-  sstm_alloc_on_commit();
+  if (sstm_meta.readers == null) {
+    return;
+  }
+
+  while (! CAS_U64(
+    &sstm_meta_global.global_lock, 
+    sstm_meta.snapshot, 
+    sstm_meta.snapshot + 1)) 
+  {
+    sstm_meta.snapshot = validate();
+  }
+
+  list_t* curr = sstm_meta.writers;
+  while (curr != null) {
+    *curr->address = curr->value
+    curr = curr->next;
+  }
+       
+  sstm_alloc_on_commit(); // TODO
+  sstm_meta_global.global_lock = sstm_meta.snapshot + 2;
+
+  clear_transaction();
   sstm_meta.n_commits++;		
+}
+
+
+size_t validate() {
+  while (1) {
+    size_t time = sstm_meta_global.global_lock;
+    if((time & 1) != 0) {
+      continue;
+    }
+
+    list_t* curr = sstm_meta.readers;
+    while (curr != null) {
+      if (*curr->address != curr->value) {
+        // TODO abort
+      }
+      curr = curr->next;
+    }
+
+    if (time == sstm_meta_global.global_lock) {
+      return time;
+    }
+  }
+}
+
+void clear_transaction() {
+  list_t* next;
+  list_t* curr = sstm_meta.readers;
+  while (curr != null) {
+    next = curr->next;
+    free(curr);
+    curr = next;
+  }
+
+  curr = sstm_meta.writers;
+  while (curr != null) {
+    next = curr->next;
+    free(curr);
+    curr = next;
+  }
+
+  sstm_meta.readers = null;
+  sstm_meta.writers = null;
 }
 
 
