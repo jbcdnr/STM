@@ -88,7 +88,7 @@ extern sstm_metadata_global_t sstm_meta_global;
 	PRINTD("|| restarting due to %d\n", reason);	\
       }							\
     do {			\
-      sstm_meta.snapshot = sstm_meta_global;
+      sstm_meta.snapshot = sstm_meta_global.global_lock;    \
     } while ((sstm_meta.snapshot & 1) != 0); \
   }
 

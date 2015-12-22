@@ -85,7 +85,7 @@ sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
   // find addr if existing
   list_t* curr = sstm_meta.writers;
   while (curr != NULL && curr->address != addr) {
-    curr = curr.next;
+    curr = curr->next;
   }
 
   // update the value or create the update node
@@ -132,7 +132,7 @@ sstm_tx_commit()
 
   list_t* curr = sstm_meta.writers;
   while (curr != NULL) {
-    *curr->address = curr->value
+    *curr->address = curr->value;
     curr = curr->next;
   }
        
