@@ -50,6 +50,8 @@ sstm_thread_stop()
 inline uintptr_t
 sstm_tx_load(volatile uintptr_t* addr)
 { 
+  printf("load value -- 0\n");
+
   // check if written in addr and return value if so
   list_t* curr = sstm_meta.writers;
   while (curr != NULL) {
@@ -59,11 +61,15 @@ sstm_tx_load(volatile uintptr_t* addr)
     curr = curr->next;
   }
 
+  printf("load value -- 1\n");
+
   uintptr_t val = *addr;
   while (sstm_meta.snapshot != sstm_meta_global.global_lock) {
     sstm_meta.snapshot = validate();
     val = *addr;
   }
+
+  printf("load value -- 2\n");
 
   // prepend (addr, val) to reading
   list_t* newHead = (list_t*) malloc(sizeof(list_t)); // TODO check success ?
@@ -71,6 +77,8 @@ sstm_tx_load(volatile uintptr_t* addr)
   newHead->value = val;
   newHead->next = sstm_meta.readers;
   sstm_meta.readers = newHead;
+
+  printf("load value -- 3\n");
 
   return val;
 }
@@ -82,11 +90,15 @@ sstm_tx_load(volatile uintptr_t* addr)
 inline void
 sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
 {
+  printf("store value -- 0\n");
+
   // find addr if existing
   list_t* curr = sstm_meta.writers;
   while (curr != NULL && curr->address != addr) {
     curr = curr->next;
   }
+
+  printf("store value -- 1\n");
 
   // update the value or create the update node
   if (curr == NULL) {
@@ -98,6 +110,8 @@ sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
   } else {
     curr->value = val;
   }
+
+  printf("store value -- 2\n");
 }
 
 /* cleaning up in case of an abort 
@@ -145,6 +159,7 @@ sstm_tx_commit()
 
 
 size_t validate() {
+  printf("validate\n");
   while (1) {
     size_t time = sstm_meta_global.global_lock;
     if((time & 1) != 0) {
@@ -160,6 +175,7 @@ size_t validate() {
     }
 
     if (time == sstm_meta_global.global_lock) {
+      printf("validate done\n");
       return time;
     }
   }
