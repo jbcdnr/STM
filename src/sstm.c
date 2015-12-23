@@ -82,9 +82,11 @@ sstm_tx_load(volatile uintptr_t* addr)
 inline void
 sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
 {
+  printf("store %i in %i\n", addr, val);
 
   // find addr if existing
   list_t* curr = sstm_meta.writers;
+  print(sstm_meta.writers);
   while (curr != NULL && curr->address != addr) {
     curr = curr->next;
   }
@@ -94,7 +96,7 @@ sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
     list_t* newHead = (list_t*) malloc(sizeof(list_t)); // TODO check success ?
     newHead->address = addr;
     newHead->value = val;
-    newHead->next = NULL;
+    newHead->next = sstm_meta.writers;
     sstm_meta.writers = newHead;
   } else {
     curr->value = val;
