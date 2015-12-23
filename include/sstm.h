@@ -23,19 +23,34 @@ extern "C" {
   /* structures */
   /* **************************************************************************************************** */
 
-  struct list_t;
-  typedef struct list_t
+
+#define LIST_INITIAL_SIZE 8
+
+  typedef struct cell_t
   {
     uintptr_t* address;
     uintptr_t value;
-    struct list_t *next;
+  } cell_t;
+
+  struct list_t;
+  typedef struct list_t
+  {
+    cell_t* array;
+    size_t size;
+    size_t capacity;
   } list_t;
+
+  void init_list(list_t* ls);
+
+  void append_list(list_t* ls, uintptr_t* address, uintptr_t value);
+
+  void free_list(list_t* ls) 
 
   typedef struct sstm_metadata
   {
     size_t snapshot;
-    list_t* readers;
-    list_t* writers;
+    list_t readers;
+    list_t writers;
 
     sigjmp_buf env;		/* Environment for setjmp/longjmp */
     size_t id;
@@ -154,10 +169,6 @@ extern sstm_metadata_global_t sstm_meta_global;
   size_t validate();
 
   void clear_transaction();
-
-  size_t length(list_t* ls);
-
-  void print(list_t* ls);
 
   /* **************************************************************************************************** */
   /* help functions */

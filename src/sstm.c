@@ -11,6 +11,8 @@ void
 sstm_start()
 {
   sstm_meta_global.global_lock = 0;
+  init_list(&sstm_meta.readers);
+  init_list(&sstm_meta.writers);
 }
 
 /* terminates the TM runtime
@@ -19,6 +21,8 @@ sstm_start()
 void
 sstm_stop()
 {
+  free_list(&sstm_meta.readers);
+  free_list(&sstm_meta.writers);
 }
 
 
@@ -51,12 +55,11 @@ inline uintptr_t
 sstm_tx_load(volatile uintptr_t* addr)
 { 
   // check if written in addr and return value if so
-  list_t* curr = sstm_meta.writers;
-  while (curr != NULL) {
-    if (curr->address == addr) {
-      return curr->value;
+  for (int i = 0; i < sstm_meta.writers.size; i++) {
+    cell_t* cell = &sstm_meta.writers.array[i];
+    if(cell->address == addr) {
+      return cell->value;
     }
-    curr = curr->next;
   }
 
   uintptr_t val = *addr;
@@ -65,12 +68,7 @@ sstm_tx_load(volatile uintptr_t* addr)
     val = *addr;
   }
 
-  // prepend (addr, val) to reading
-  list_t* newHead = (list_t*) malloc(sizeof(list_t)); // TODO check success ?
-  newHead->address = addr;
-  newHead->value = val;
-  newHead->next = sstm_meta.readers;
-  sstm_meta.readers = newHead;
+  append_list(&sstm_meta.readers, addr, val)
 
   return val;
 }
@@ -82,27 +80,16 @@ sstm_tx_load(volatile uintptr_t* addr)
 inline void
 sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
 {
-  printf("store - 0 - #%i - addr: %i\n", sstm_meta.id, addr);
-
-  // find addr if existing
-  list_t* curr = sstm_meta.writers;
-  while (curr != NULL && curr->address != addr) {
-    curr = curr->next;
-  }
-  printf("store - 1 - #%i - addr: %i\n", sstm_meta.id, addr);
-
-  // update the value or create the update node
-  if (curr == NULL) {
-    list_t* newHead = (list_t*) malloc(sizeof(list_t)); // TODO check success ?
-    newHead->address = addr;
-    newHead->value = val;
-    newHead->next = sstm_meta.writers;
-    sstm_meta.writers = newHead;
-  } else {
-    curr->value = val;
+  // update old value if any
+  for (int i = 0; i < sstm_meta.writers.size; i++) {
+    cell_t* cell = &sstm_meta.writers.array[i];
+    if(cell->address == addr) {
+      cell->value = val;
+      return;
+    }
   }
 
-  printf("store - 2 - #%i - addr: %i\n", sstm_meta.id, addr);
+  append_list(&sstm_meta.writers, addr, val);
 }
 
 /* cleaning up in case of an abort 
@@ -123,7 +110,7 @@ sstm_tx_cleanup()
 void
 sstm_tx_commit()
 {
-  if (sstm_meta.writers != NULL) {
+  if (sstm_meta.writers.size > 0) {
 
     while (CAS_U64(
       &sstm_meta_global.global_lock, 
@@ -133,10 +120,9 @@ sstm_tx_commit()
       sstm_meta.snapshot = validate();
     }
 
-    list_t* curr = sstm_meta.writers;
-    while (curr != NULL) {
-      *curr->address = curr->value;
-      curr = curr->next;
+    for (int i = 0; i < sstm_meta.writers.size; i++) {
+      cell_t* cell = &sstm_meta.writers.array[i];
+      *(cell->address) = cell->value;
     }
          
     sstm_alloc_on_commit(); // TODO
@@ -156,14 +142,11 @@ size_t validate() {
       continue;
     }
 
-    list_t* curr = sstm_meta.readers;
-    while (curr != NULL) {
-      if (*curr->address != curr->value) {
+    for (int i = 0; i < sstm_meta.readers.size; i++) {
+      cell_t* cell = &sstm_meta.readers.array[i];
+      if(*cell->address != cell->value) {
         TX_ABORT(1000);
-        exit(1);
-        return; // TODO check
       }
-      curr = curr->next;
     }
 
     if (time == sstm_meta_global.global_lock) {
@@ -172,41 +155,29 @@ size_t validate() {
   }
 }
 
-size_t length(list_t* ls) {
-  if(ls == NULL)
-    return 0;
-  else
-    return 1 + length(ls->next);
+void init_list(list_t* ls) {
+  ls->size = 0;
+  ls->capacity = LIST_INITIAL_SIZE;
+  ls->array = calloc(LIST_INITIAL_SIZE * sizeof(cell_t));
 }
 
-void print(list_t* ls) {
-  if(ls == NULL)
-    printf("NULL\n");
-  else {
-    printf("(%i, %i) -> ", ls->address, ls->value);
-    print(ls->next);
+void append_list(list_t* ls, uintptr_t* address, uintptr_t value); {
+  while (ls->size < ls->capacity) {
+    ls->array = realloc(ls->array, ls->capacity * 2);
+    ls->capacity *= 2;
   }
+  ls->array[ls->size].address = address;
+  ls->array[ls->size].value = value;
+  ls->size++;
 }
 
+void free_list(list_t* ls) {
+  free(ls->array);
+}
 
 void clear_transaction() {
-  list_t* next;
-  list_t* curr = sstm_meta.readers;
-  while (curr != NULL) {
-    next = curr->next;
-    free(curr);
-    curr = next;
-  }
-
-  curr = sstm_meta.writers;
-  while (curr != NULL) {
-    next = curr->next;
-    free(curr);
-    curr = next;
-  }
-
-  sstm_meta.readers = NULL;
-  sstm_meta.writers = NULL;
+  sstm_meta.readers.size = 0;
+  sstm_meta.writers.size = 0;
 }
 
 
