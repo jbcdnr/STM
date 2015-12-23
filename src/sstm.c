@@ -11,10 +11,6 @@ void
 sstm_start()
 {
   sstm_meta_global.global_lock = 0;
-  size_t ret1 = CAS_U64(&sstm_meta_global.global_lock, 0, 100);
-  size_t ret2 = CAS_U64(&sstm_meta_global.global_lock, 50, 20);
-  size_t ret3 = CAS_U64(&sstm_meta_global.global_lock, 100, 0);
-  printf("CAS return: %i, %i and %i\n", ret1, ret2, ret3);
 }
 
 /* terminates the TM runtime
@@ -54,10 +50,6 @@ sstm_thread_stop()
 inline uintptr_t
 sstm_tx_load(volatile uintptr_t* addr)
 { 
-  printf("load value -- 0 : snapshot %i global_lock %i\n", 
-      sstm_meta.snapshot, 
-      sstm_meta_global.global_lock);
-
   // check if written in addr and return value if so
   list_t* curr = sstm_meta.writers;
   while (curr != NULL) {
@@ -67,19 +59,11 @@ sstm_tx_load(volatile uintptr_t* addr)
     curr = curr->next;
   }
 
-  printf("load value -- 1 : snapshot %i global_lock %i\n", 
-      sstm_meta.snapshot, 
-      sstm_meta_global.global_lock);
-
   uintptr_t val = *addr;
   while (sstm_meta.snapshot != sstm_meta_global.global_lock) {
     sstm_meta.snapshot = validate();
     val = *addr;
   }
-
-  printf("load value -- 2 : snapshot %i global_lock %i\n", 
-      sstm_meta.snapshot, 
-      sstm_meta_global.global_lock);
 
   // prepend (addr, val) to reading
   list_t* newHead = (list_t*) malloc(sizeof(list_t)); // TODO check success ?
@@ -87,10 +71,6 @@ sstm_tx_load(volatile uintptr_t* addr)
   newHead->value = val;
   newHead->next = sstm_meta.readers;
   sstm_meta.readers = newHead;
-
-  printf("load value -- 3 : snapshot %i global_lock %i\n", 
-      sstm_meta.snapshot, 
-      sstm_meta_global.global_lock);
 
   return val;
 }
@@ -102,19 +82,12 @@ sstm_tx_load(volatile uintptr_t* addr)
 inline void
 sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
 {
-  printf("store value -- 0 : snapshot %i global_lock %i\n", 
-      sstm_meta.snapshot, 
-      sstm_meta_global.global_lock);
 
   // find addr if existing
   list_t* curr = sstm_meta.writers;
   while (curr != NULL && curr->address != addr) {
     curr = curr->next;
   }
-
-  printf("store value -- 1 : snapshot %i global_lock %i\n", 
-      sstm_meta.snapshot, 
-      sstm_meta_global.global_lock);
 
   // update the value or create the update node
   if (curr == NULL) {
@@ -127,9 +100,6 @@ sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
     curr->value = val;
   }
 
-  printf("store value -- 2 : snapshot %i global_lock %i\n", 
-      sstm_meta.snapshot, 
-      sstm_meta_global.global_lock);
 }
 
 /* cleaning up in case of an abort 
@@ -150,16 +120,11 @@ sstm_tx_cleanup()
 void
 sstm_tx_commit()
 {
-  printf("commit -- 0\n");
-
   if (sstm_meta.writers == NULL) {
     clear_transaction();
     return;
   }
 
-  printf("commit -- 1 : snapshot %i global_lock %i\n", 
-    sstm_meta.snapshot, 
-    sstm_meta_global.global_lock);
 
   // TODO maybe wrong return check for CAS (if not bool)
   while (CAS_U64(
@@ -167,18 +132,8 @@ sstm_tx_commit()
     sstm_meta.snapshot, 
     sstm_meta.snapshot + 1) != sstm_meta.snapshot) 
   {
-    printf("commit -- 2 : snapshot %i global_lock %i\n", 
-      sstm_meta.snapshot, 
-      sstm_meta_global.global_lock);
     sstm_meta.snapshot = validate();
-    printf("commit -- 3 : snapshot %i global_lock %i\n", 
-      sstm_meta.snapshot, 
-      sstm_meta_global.global_lock);
   }
-
-  printf("commit -- 4 : snapshot %i global_lock %i\n", 
-    sstm_meta.snapshot, 
-    sstm_meta_global.global_lock);
 
   list_t* curr = sstm_meta.writers;
   while (curr != NULL) {
@@ -195,12 +150,8 @@ sstm_tx_commit()
 
 
 size_t validate() {
-  printf("validate : snapshot %i global_lock %i\n", 
-      sstm_meta.snapshot, 
-      sstm_meta_global.global_lock);
   while (1) {
     size_t time = sstm_meta_global.global_lock;
-    printf("validate -- %i\n", time);
     if((time & 1) != 0) {
       continue;
     }
@@ -208,17 +159,14 @@ size_t validate() {
     list_t* curr = sstm_meta.readers;
     while (curr != NULL) {
       if (*curr->address != curr->value) {
-        printf("must abort validation\n");
+        printf("Abort transaction during validation\n");
         TX_ABORT(1000);
-        return;
+        return; // TODO check
       }
       curr = curr->next;
     }
 
-    printf("validate -- 2\n");
-
     if (time == sstm_meta_global.global_lock) {
-      printf("validate done\n");
       return time;
     }
   }
