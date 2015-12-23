@@ -120,6 +120,12 @@ sstm_tx_cleanup()
 void
 sstm_tx_commit()
 {
+  printf("commit for #%i\n", sstm_meta.id);
+  printf("readers: ");
+  print(sstm_meta.readers);
+  printf("writers: ");
+  print(sstm_meta.writers);
+
   if (sstm_meta.writers == NULL) {
     clear_transaction();
     return;
@@ -156,6 +162,9 @@ size_t validate() {
       continue;
     }
 
+    printf("validate for #%i\n", sstm_meta.id);
+    printf("readers: ");
+    print(sstm_meta.readers);
     list_t* curr = sstm_meta.readers;
     while (curr != NULL) {
       if (*curr->address != curr->value) {
@@ -171,6 +180,23 @@ size_t validate() {
     }
   }
 }
+
+size_t length(list_t* ls) {
+  if(ls == NULL)
+    return 0;
+  else
+    return 1 + length(ls->next);
+}
+
+void print(list_t* ls) {
+  if(ls == NULL)
+    printf("NULL\n");
+  else {
+    printf("(%i, %i) -> ", ls->address, ls->value);
+    print(ls->next);
+  }
+}
+
 
 void clear_transaction() {
   list_t* next;
