@@ -162,10 +162,10 @@ sstm_tx_commit()
     sstm_meta_global.global_lock);
 
   // TODO maybe wrong return check for CAS (if not bool)
-  while (! CAS_U64(
+  while (CAS_U64(
     &sstm_meta_global.global_lock, 
     sstm_meta.snapshot, 
-    sstm_meta.snapshot + 1)) 
+    sstm_meta.snapshot + 1) != sstm_meta.snapshot) 
   {
     printf("commit -- 2 : snapshot %i global_lock %i\n", 
       sstm_meta.snapshot, 
