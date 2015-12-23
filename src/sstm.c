@@ -82,11 +82,8 @@ sstm_tx_load(volatile uintptr_t* addr)
 inline void
 sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
 {
-  printf("store %i in %i\n", addr, val);
-
   // find addr if existing
   list_t* curr = sstm_meta.writers;
-  print(sstm_meta.writers);
   while (curr != NULL && curr->address != addr) {
     curr = curr->next;
   }
@@ -101,7 +98,6 @@ sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
   } else {
     curr->value = val;
   }
-
 }
 
 /* cleaning up in case of an abort 
@@ -122,12 +118,6 @@ sstm_tx_cleanup()
 void
 sstm_tx_commit()
 {
-  printf("commit for #%i\n", sstm_meta.id);
-  printf("readers: ");
-  print(sstm_meta.readers);
-  printf("writers: ");
-  print(sstm_meta.writers);
-
   if (sstm_meta.writers == NULL) {
     clear_transaction();
     return;
@@ -164,9 +154,6 @@ size_t validate() {
       continue;
     }
 
-    printf("validate for #%i\n", sstm_meta.id);
-    printf("readers: ");
-    print(sstm_meta.readers);
     list_t* curr = sstm_meta.readers;
     while (curr != NULL) {
       if (*curr->address != curr->value) {

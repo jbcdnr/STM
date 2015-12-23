@@ -60,17 +60,13 @@ static bank_t* bank;
 int 
 transfer(account_t* src, account_t* dst, int amount) 
 {
-  printf("transfer from %i to %i of %i\n", src, dst, amount);
-
   /* Allow overdrafts */
   TX_START();
   int64_t i, j;
   i = TX_LOAD(&src->balance);
   j = TX_LOAD(&dst->balance);
-  printf("balance from %i, balance to %i\n", i, j);
   i -= amount;
   j += amount;
-  printf("new value from %i, balance to %i\n", i, j);
   TX_STORE(&src->balance, i); 
   TX_STORE(&dst->balance, j);
   TX_COMMIT();
