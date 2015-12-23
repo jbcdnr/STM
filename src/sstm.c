@@ -132,10 +132,16 @@ sstm_tx_cleanup()
 void
 sstm_tx_commit()
 {
+  printf("commit -- 0\n");
+
   if (sstm_meta.writers == NULL) {
     clear_transaction();
     return;
   }
+
+  printf("commit -- 1 : snapshot %i global_lock %i\n", 
+    sstm_meta.snapshot, 
+    sstm_meta_global.global_lock);
 
   // TODO maybe wrong return check for CAS (if not bool)
   while (! CAS_U64(
@@ -143,8 +149,18 @@ sstm_tx_commit()
     sstm_meta.snapshot, 
     sstm_meta.snapshot + 1)) 
   {
+    printf("commit -- 2 : snapshot %i global_lock %i\n", 
+      sstm_meta.snapshot, 
+      sstm_meta_global.global_lock);
     sstm_meta.snapshot = validate();
+    printf("commit -- 3 : snapshot %i global_lock %i\n", 
+      sstm_meta.snapshot, 
+      sstm_meta_global.global_lock);
   }
+
+  printf("commit -- 4 : snapshot %i global_lock %i\n", 
+    sstm_meta.snapshot, 
+    sstm_meta_global.global_lock);
 
   list_t* curr = sstm_meta.writers;
   while (curr != NULL) {
