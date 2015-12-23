@@ -82,11 +82,14 @@ sstm_tx_load(volatile uintptr_t* addr)
 inline void
 sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
 {
+  printf("store - 0 - #%i - addr: %i\n", sstm_meta.id, addr);
+
   // find addr if existing
   list_t* curr = sstm_meta.writers;
   while (curr != NULL && curr->address != addr) {
     curr = curr->next;
   }
+  printf("store - 1 - #%i - addr: %i\n", sstm_meta.id, addr);
 
   // update the value or create the update node
   if (curr == NULL) {
@@ -98,6 +101,8 @@ sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
   } else {
     curr->value = val;
   }
+
+  printf("store - 2 - #%i - addr: %i\n", sstm_meta.id, addr);
 }
 
 /* cleaning up in case of an abort 
@@ -120,7 +125,6 @@ sstm_tx_commit()
 {
   if (sstm_meta.writers != NULL) {
 
-    // TODO maybe wrong return check for CAS (if not bool)
     while (CAS_U64(
       &sstm_meta_global.global_lock, 
       sstm_meta.snapshot, 
