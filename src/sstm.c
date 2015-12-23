@@ -11,8 +11,6 @@ void
 sstm_start()
 {
   sstm_meta_global.global_lock = 0;
-  init_list(&sstm_meta.readers);
-  init_list(&sstm_meta.writers);
 }
 
 /* terminates the TM runtime
@@ -21,8 +19,6 @@ sstm_start()
 void
 sstm_stop()
 {
-  free_list(&sstm_meta.readers);
-  free_list(&sstm_meta.writers);
 }
 
 
@@ -32,6 +28,10 @@ sstm_stop()
 void
 sstm_thread_start()
 {
+  init_list(&sstm_meta.readers);
+  init_list(&sstm_meta.writers);
+
+  printf("readers cap: %i, writers cap: %i\n", sstm_meta.readers.capacity, sstm_meta.writers.capacity);
 }
 
 /* terminates thread local data
@@ -42,6 +42,9 @@ sstm_thread_start()
 void
 sstm_thread_stop()
 {
+  free_list(&sstm_meta.readers);
+  free_list(&sstm_meta.writers);
+
   __sync_fetch_and_add(&sstm_meta_global.n_commits, sstm_meta.n_commits);
   __sync_fetch_and_add(&sstm_meta_global.n_aborts, sstm_meta.n_aborts);
 }
@@ -54,6 +57,9 @@ sstm_thread_stop()
 inline uintptr_t
 sstm_tx_load(volatile uintptr_t* addr)
 { 
+
+  printf("readers @ %i, writers @ %i\n", &sstm_meta.readers, &sstm_meta.writers);
+
   printf("load - 0\n");
 
   // check if written in addr and return value if so
@@ -89,7 +95,6 @@ sstm_tx_load(volatile uintptr_t* addr)
 inline void
 sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
 {
-
   printf("store - 0\n");
 
   // update old value if any
@@ -199,14 +204,15 @@ void init_list(list_t* ls) {
   ls->size = 0;
   ls->capacity = LIST_INITIAL_SIZE;
   ls->array = calloc(LIST_INITIAL_SIZE, sizeof(cell_t));
+  printf("Init list @ %i\n", ls);
 }
 
 void append_list(list_t* ls, volatile uintptr_t* address, uintptr_t value) {
-  printf("append - 0 - size %i\n", ls->size);
+  printf("append - 0 - size %i - cap %i\n", ls->size, ls->capacity);
 
   while (ls->size >= ls->capacity) {
     printf("append expend %i -> %i\n", ls->capacity, ls->capacity * 2);
-    ls->array = realloc(ls->array, ls->capacity * 2);
+    ls->array = realloc(ls->array, ls->capacity * 2 * sizeof(cell_t));
     ls->capacity *= 2;
   }
   ls->array[ls->size].address = address;
