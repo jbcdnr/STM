@@ -157,8 +157,8 @@ size_t validate() {
     list_t* curr = sstm_meta.readers;
     while (curr != NULL) {
       if (*curr->address != curr->value) {
-        printf("Abort transaction during validation\n");
         TX_ABORT(1000);
+        exit(1);
         return; // TODO check
       }
       curr = curr->next;
