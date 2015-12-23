@@ -67,10 +67,10 @@ transfer(account_t* src, account_t* dst, int amount)
   int64_t i, j;
   i = TX_LOAD(&src->balance);
   j = TX_LOAD(&dst->balance);
-  printf("balance from %i, balance to %i\n", i, j)
+  printf("balance from %i, balance to %i\n", i, j);
   i -= amount;
   j += amount;
-  printf("new value from %i, balance to %i\n", i, j)
+  printf("new value from %i, balance to %i\n", i, j);
   TX_STORE(&src->balance, i); 
   TX_STORE(&dst->balance, j);
   TX_COMMIT();
