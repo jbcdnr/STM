@@ -11,6 +11,10 @@ void
 sstm_start()
 {
   sstm_meta_global.global_lock = 0;
+  size_t ret1 = CAS_U64(&sstm_meta_global.global_lock, 0, 100);
+  size_t ret2 = CAS_U64(&sstm_meta_global.global_lock, 50, 20);
+  size_t ret3 = CAS_U64(&sstm_meta_global.global_lock, 100, 0);
+  printf("CAS return: %i, %i and %i\n", ret1, ret2, ret3);
 }
 
 /* terminates the TM runtime
