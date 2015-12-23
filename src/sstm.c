@@ -166,7 +166,7 @@ void init_list(list_t* ls) {
 }
 
 void append_list(list_t* ls, volatile uintptr_t* address, uintptr_t value) {
-  while (ls->size < ls->capacity) {
+  while (ls->size >= ls->capacity) {
     ls->array = realloc(ls->array, ls->capacity * 2);
     ls->capacity *= 2;
   }
@@ -177,6 +177,7 @@ void append_list(list_t* ls, volatile uintptr_t* address, uintptr_t value) {
 
 void free_list(list_t* ls) {
   free(ls->array);
+  ls->array = NULL;
 }
 
 void clear_transaction() {
