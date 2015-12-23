@@ -24,7 +24,8 @@ extern "C" {
   /* **************************************************************************************************** */
 
 
-#define LIST_INITIAL_SIZE 8
+#define LIST_INITIAL_SIZE 32
+#define LIST_EXPEND_FACTOR 4
 
   typedef struct cell_t
   {

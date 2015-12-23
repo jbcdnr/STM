@@ -170,7 +170,7 @@ void init_list(list_t* ls) {
 void append_list(list_t* ls, volatile uintptr_t* address, uintptr_t value) {
 
   while (ls->size >= ls->capacity) {
-    ls->array = realloc(ls->array, ls->capacity * 2 * sizeof(cell_t));
+    ls->array = realloc(ls->array, ls->capacity * LIST_EXPEND_FACTOR * sizeof(cell_t));
     ls->capacity *= 2;
   }
   ls->array[ls->size].address = address;
