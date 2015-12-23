@@ -61,7 +61,7 @@ extern "C" {
 
   typedef struct sstm_metadata_global
   {
-    size_t global_lock;
+    volatile size_t global_lock;
     size_t n_commits;
     size_t n_aborts;
   } sstm_metadata_global_t;

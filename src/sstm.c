@@ -7,27 +7,21 @@ sstm_metadata_global_t sstm_meta_global; /* global metadata */
 /* initializes the TM runtime 
    (e.g., allocates the locks that the system uses ) 
 */
-void
-sstm_start()
-{
+void sstm_start() {
   sstm_meta_global.global_lock = 0;
 }
 
 /* terminates the TM runtime
    (e.g., deallocates the locks that the system uses ) 
 */
-void
-sstm_stop()
-{
+void sstm_stop() {
 }
 
 
 /* initializes thread local data
    (e.g., allocate a thread local counter)
  */
-void
-sstm_thread_start()
-{
+void sstm_thread_start() {
   init_list(&sstm_meta.readers);
   init_list(&sstm_meta.writers);
 }
@@ -40,8 +34,12 @@ sstm_thread_start()
 void
 sstm_thread_stop()
 {
+  // printf("id %i -- STOPPPP\n", sstm_meta.id);
+
   free_list(&sstm_meta.readers);
   free_list(&sstm_meta.writers);
+
+  // printf("id %i -- STOPPPP\n", sstm_meta.id);
 
   __sync_fetch_and_add(&sstm_meta_global.n_commits, sstm_meta.n_commits);
   __sync_fetch_and_add(&sstm_meta_global.n_aborts, sstm_meta.n_aborts);
@@ -52,9 +50,11 @@ sstm_thread_stop()
  * On a more complex than GL-STM algorithm,
  * you need to do more work than simply reading the value.
 */
-inline uintptr_t
-sstm_tx_load(volatile uintptr_t* addr)
-{ 
+ inline uintptr_t
+ sstm_tx_load(volatile uintptr_t* addr)
+ { 
+
+  // printf("id %i -- load - 0\n", sstm_meta.id);
   // check if written in addr and return value if so
   int i;
   for (i = 0; i < sstm_meta.writers.size; i++) {
@@ -64,13 +64,19 @@ sstm_tx_load(volatile uintptr_t* addr)
     }
   }
 
+  // printf("id %i -- load - 1\n", sstm_meta.id);
+
   uintptr_t val = *addr;
   while (sstm_meta.snapshot != sstm_meta_global.global_lock) {
     sstm_meta.snapshot = validate();
     val = *addr;
   }
 
+  // printf("id %i -- load - 2\n", sstm_meta.id);
+
   append_list(&sstm_meta.readers, addr, val);
+
+  // printf("id %i -- load - 3\n", sstm_meta.id);
 
   return val;
 }
@@ -79,9 +85,10 @@ sstm_tx_load(volatile uintptr_t* addr)
  * On a more complex than GL-STM algorithm,
  * you need to do more work than simply reading the value.
 */
-inline void
-sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
-{
+ inline void
+ sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
+ {
+  // printf("id %i -- store - 0\n", sstm_meta.id);
   // update old value if any
   int i;
   for (i = 0; i < sstm_meta.writers.size; i++) {
@@ -92,28 +99,34 @@ sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
     }
   }
 
+  // printf("id %i -- store - 1\n", sstm_meta.id);
+
   append_list(&sstm_meta.writers, addr, val);
+
+  // printf("id %i -- store - 2\n", sstm_meta.id);
 }
 
 /* cleaning up in case of an abort 
    (e.g., flush the read or write logs)
 */
-void
-sstm_tx_cleanup()
-{
-  clear_transaction();
-  sstm_alloc_on_abort();
-  sstm_meta.n_aborts++;
-}
+   void
+   sstm_tx_cleanup()
+   {
+    clear_transaction();
+    sstm_alloc_on_abort();
+    sstm_meta.n_aborts++;
+  }
 
 /* tries to commit a transaction
    (e.g., validates some version number, and/or
    acquires a couple of locks)
  */
-void
-sstm_tx_commit()
-{
+void sstm_tx_commit() {
+  // printf("id %i -- commit - 0\n", sstm_meta.id);
+
   if (sstm_meta.writers.size > 0) {
+
+    // printf("id %i -- commit - 1\n", sstm_meta.id);
 
     while (CAS_U64(
       &sstm_meta_global.global_lock, 
@@ -122,6 +135,7 @@ sstm_tx_commit()
     {
       sstm_meta.snapshot = validate();
     }
+    // printf("id %i -- commit - 2\n", sstm_meta.id);
 
     int i;
     for (i = 0; i < sstm_meta.writers.size; i++) {
@@ -134,6 +148,9 @@ sstm_tx_commit()
 
   }
 
+
+  // printf("id %i -- commit - 3\n", sstm_meta.id);
+
   clear_transaction();
   sstm_meta.n_commits++;		
 }
@@ -142,10 +159,15 @@ sstm_tx_commit()
 size_t validate() {
 
   while (1) {
+
+    // printf("id %i -- validate - 0\n", sstm_meta.id);
     size_t time = sstm_meta_global.global_lock;
     if((time & 1) != 0) {
       continue;
     }
+
+    // printf("id %i -- validate - 1\n", sstm_meta.id);
+
 
     int i;
     for (i = 0; i < sstm_meta.readers.size; i++) {
@@ -154,6 +176,9 @@ size_t validate() {
         TX_ABORT(1000);
       }
     }
+
+    // printf("id %i -- validate - 2\n", sstm_meta.id);
+
 
     if (time == sstm_meta_global.global_lock) {
       return time;
@@ -173,6 +198,7 @@ void append_list(list_t* ls, volatile uintptr_t* address, uintptr_t value) {
     ls->array = realloc(ls->array, ls->capacity * LIST_EXPEND_FACTOR * sizeof(cell_t));
     ls->capacity *= 2;
   }
+
   ls->array[ls->size].address = address;
   ls->array[ls->size].value = value;
   ls->size++;
@@ -196,9 +222,9 @@ void
 sstm_print_stats(double dur_s)
 {
   printf("# Commits: %-10zu - %.0f /s\n",
-	 sstm_meta_global.n_commits,
-	 sstm_meta_global.n_commits / dur_s);
+    sstm_meta_global.n_commits,
+    sstm_meta_global.n_commits / dur_s);
   printf("# Aborts : %-10zu - %.0f /s\n",
-	 sstm_meta_global.n_aborts,
-	 sstm_meta_global.n_aborts / dur_s);
+    sstm_meta_global.n_aborts,
+    sstm_meta_global.n_aborts / dur_s);
 }
