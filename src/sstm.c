@@ -30,8 +30,6 @@ sstm_thread_start()
 {
   init_list(&sstm_meta.readers);
   init_list(&sstm_meta.writers);
-
-  printf("readers cap: %i, writers cap: %i\n", sstm_meta.readers.capacity, sstm_meta.writers.capacity);
 }
 
 /* terminates thread local data
@@ -57,11 +55,6 @@ sstm_thread_stop()
 inline uintptr_t
 sstm_tx_load(volatile uintptr_t* addr)
 { 
-
-  printf("readers @ %i, writers @ %i\n", &sstm_meta.readers, &sstm_meta.writers);
-
-  printf("load - 0\n");
-
   // check if written in addr and return value if so
   int i;
   for (i = 0; i < sstm_meta.writers.size; i++) {
@@ -71,19 +64,13 @@ sstm_tx_load(volatile uintptr_t* addr)
     }
   }
 
-  printf("load - 1\n");
-
   uintptr_t val = *addr;
   while (sstm_meta.snapshot != sstm_meta_global.global_lock) {
     sstm_meta.snapshot = validate();
     val = *addr;
   }
 
-  printf("load - 2\n");
-
   append_list(&sstm_meta.readers, addr, val);
-
-  printf("load - 3\n");
 
   return val;
 }
@@ -95,8 +82,6 @@ sstm_tx_load(volatile uintptr_t* addr)
 inline void
 sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
 {
-  printf("store - 0\n");
-
   // update old value if any
   int i;
   for (i = 0; i < sstm_meta.writers.size; i++) {
@@ -107,12 +92,7 @@ sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
     }
   }
 
-
-  printf("store - 1\n");
-
   append_list(&sstm_meta.writers, addr, val);
-
-  printf("store - 2\n");
 }
 
 /* cleaning up in case of an abort 
@@ -133,13 +113,7 @@ sstm_tx_cleanup()
 void
 sstm_tx_commit()
 {
-
-  printf("commit - 0\n");
-
   if (sstm_meta.writers.size > 0) {
-
-
-    printf("commit - 1\n");
 
     while (CAS_U64(
       &sstm_meta_global.global_lock, 
@@ -149,16 +123,11 @@ sstm_tx_commit()
       sstm_meta.snapshot = validate();
     }
 
-
-    printf("commit - 2\n");
-
     int i;
     for (i = 0; i < sstm_meta.writers.size; i++) {
       cell_t* cell = &sstm_meta.writers.array[i];
       *(cell->address) = cell->value;
     }   
-
-    printf("commit - 3\n");
 
     sstm_alloc_on_commit(); // TODO
     sstm_meta_global.global_lock = sstm_meta.snapshot + 2;
@@ -172,17 +141,11 @@ sstm_tx_commit()
 
 size_t validate() {
 
-
-  printf("validate - 0\n");
-
   while (1) {
     size_t time = sstm_meta_global.global_lock;
     if((time & 1) != 0) {
       continue;
     }
-
-    printf("validate - 1\n");
-
 
     int i;
     for (i = 0; i < sstm_meta.readers.size; i++) {
@@ -191,8 +154,6 @@ size_t validate() {
         TX_ABORT(1000);
       }
     }
-
-    printf("validate - 2\n");
 
     if (time == sstm_meta_global.global_lock) {
       return time;
@@ -204,14 +165,11 @@ void init_list(list_t* ls) {
   ls->size = 0;
   ls->capacity = LIST_INITIAL_SIZE;
   ls->array = calloc(LIST_INITIAL_SIZE, sizeof(cell_t));
-  printf("Init list @ %i\n", ls);
 }
 
 void append_list(list_t* ls, volatile uintptr_t* address, uintptr_t value) {
-  printf("append - 0 - size %i - cap %i\n", ls->size, ls->capacity);
 
   while (ls->size >= ls->capacity) {
-    printf("append expend %i -> %i\n", ls->capacity, ls->capacity * 2);
     ls->array = realloc(ls->array, ls->capacity * 2 * sizeof(cell_t));
     ls->capacity *= 2;
   }
