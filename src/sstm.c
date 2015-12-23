@@ -55,7 +55,8 @@ inline uintptr_t
 sstm_tx_load(volatile uintptr_t* addr)
 { 
   // check if written in addr and return value if so
-  for (int i = 0; i < sstm_meta.writers.size; i++) {
+  int i;
+  for (i = 0; i < sstm_meta.writers.size; i++) {
     cell_t* cell = &sstm_meta.writers.array[i];
     if(cell->address == addr) {
       return cell->value;
@@ -68,7 +69,7 @@ sstm_tx_load(volatile uintptr_t* addr)
     val = *addr;
   }
 
-  append_list(&sstm_meta.readers, addr, val)
+  append_list(&sstm_meta.readers, addr, val);
 
   return val;
 }
@@ -81,7 +82,8 @@ inline void
 sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
 {
   // update old value if any
-  for (int i = 0; i < sstm_meta.writers.size; i++) {
+  int i;
+  for (i = 0; i < sstm_meta.writers.size; i++) {
     cell_t* cell = &sstm_meta.writers.array[i];
     if(cell->address == addr) {
       cell->value = val;
@@ -120,7 +122,8 @@ sstm_tx_commit()
       sstm_meta.snapshot = validate();
     }
 
-    for (int i = 0; i < sstm_meta.writers.size; i++) {
+    int i;
+    for (i = 0; i < sstm_meta.writers.size; i++) {
       cell_t* cell = &sstm_meta.writers.array[i];
       *(cell->address) = cell->value;
     }
@@ -142,7 +145,8 @@ size_t validate() {
       continue;
     }
 
-    for (int i = 0; i < sstm_meta.readers.size; i++) {
+    int i;
+    for (i = 0; i < sstm_meta.readers.size; i++) {
       cell_t* cell = &sstm_meta.readers.array[i];
       if(*cell->address != cell->value) {
         TX_ABORT(1000);
@@ -158,10 +162,10 @@ size_t validate() {
 void init_list(list_t* ls) {
   ls->size = 0;
   ls->capacity = LIST_INITIAL_SIZE;
-  ls->array = calloc(LIST_INITIAL_SIZE * sizeof(cell_t));
+  ls->array = calloc(LIST_INITIAL_SIZE, sizeof(cell_t));
 }
 
-void append_list(list_t* ls, uintptr_t* address, uintptr_t value); {
+void append_list(list_t* ls, volatile uintptr_t* address, uintptr_t value) {
   while (ls->size < ls->capacity) {
     ls->array = realloc(ls->array, ls->capacity * 2);
     ls->capacity *= 2;

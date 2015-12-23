@@ -42,9 +42,9 @@ extern "C" {
 
   void init_list(list_t* ls);
 
-  void append_list(list_t* ls, uintptr_t* address, uintptr_t value);
+  void append_list(list_t* ls, volatile uintptr_t* address, uintptr_t value);
 
-  void free_list(list_t* ls) 
+  void free_list(list_t* ls) ;
 
   typedef struct sstm_metadata
   {
