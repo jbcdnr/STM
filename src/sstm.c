@@ -118,29 +118,27 @@ sstm_tx_cleanup()
 void
 sstm_tx_commit()
 {
-  if (sstm_meta.writers == NULL) {
-    clear_transaction();
-    return;
-  }
+  if (sstm_meta.writers != NULL) {
 
+    // TODO maybe wrong return check for CAS (if not bool)
+    while (CAS_U64(
+      &sstm_meta_global.global_lock, 
+      sstm_meta.snapshot, 
+      sstm_meta.snapshot + 1) != sstm_meta.snapshot) 
+    {
+      sstm_meta.snapshot = validate();
+    }
 
-  // TODO maybe wrong return check for CAS (if not bool)
-  while (CAS_U64(
-    &sstm_meta_global.global_lock, 
-    sstm_meta.snapshot, 
-    sstm_meta.snapshot + 1) != sstm_meta.snapshot) 
-  {
-    sstm_meta.snapshot = validate();
-  }
+    list_t* curr = sstm_meta.writers;
+    while (curr != NULL) {
+      *curr->address = curr->value;
+      curr = curr->next;
+    }
+         
+    sstm_alloc_on_commit(); // TODO
+    sstm_meta_global.global_lock = sstm_meta.snapshot + 2;
 
-  list_t* curr = sstm_meta.writers;
-  while (curr != NULL) {
-    *curr->address = curr->value;
-    curr = curr->next;
   }
-       
-  sstm_alloc_on_commit(); // TODO
-  sstm_meta_global.global_lock = sstm_meta.snapshot + 2;
 
   clear_transaction();
   sstm_meta.n_commits++;		
