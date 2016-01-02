@@ -34,12 +34,8 @@ void sstm_thread_start() {
 void
 sstm_thread_stop()
 {
-  // printf("id %i -- STOPPPP\n", sstm_meta.id);
-
   free_list(&sstm_meta.readers);
   free_list(&sstm_meta.writers);
-
-  // printf("id %i -- STOPPPP\n", sstm_meta.id);
 
   __sync_fetch_and_add(&sstm_meta_global.n_commits, sstm_meta.n_commits);
   __sync_fetch_and_add(&sstm_meta_global.n_aborts, sstm_meta.n_aborts);
@@ -109,24 +105,19 @@ sstm_thread_stop()
 /* cleaning up in case of an abort 
    (e.g., flush the read or write logs)
 */
-   void
-   sstm_tx_cleanup()
-   {
-    clear_transaction();
-    sstm_alloc_on_abort();
-    sstm_meta.n_aborts++;
-  }
+void sstm_tx_cleanup() {
+  sstm_alloc_on_abort();
+  clear_transaction();
+  sstm_meta.n_aborts++;
+}
 
 /* tries to commit a transaction
    (e.g., validates some version number, and/or
    acquires a couple of locks)
  */
 void sstm_tx_commit() {
-  // printf("id %i -- commit - 0\n", sstm_meta.id);
 
   if (sstm_meta.writers.size > 0) {
-
-    // printf("id %i -- commit - 1\n", sstm_meta.id);
 
     while (CAS_U64(
       &sstm_meta_global.global_lock, 
@@ -135,7 +126,6 @@ void sstm_tx_commit() {
     {
       sstm_meta.snapshot = validate();
     }
-    // printf("id %i -- commit - 2\n", sstm_meta.id);
 
     int i;
     for (i = 0; i < sstm_meta.writers.size; i++) {
@@ -143,13 +133,10 @@ void sstm_tx_commit() {
       *(cell->address) = cell->value;
     }   
 
-    sstm_alloc_on_commit(); // TODO
+    sstm_alloc_on_commit();
     sstm_meta_global.global_lock = sstm_meta.snapshot + 2;
 
   }
-
-
-  // printf("id %i -- commit - 3\n", sstm_meta.id);
 
   clear_transaction();
   sstm_meta.n_commits++;		
@@ -159,16 +146,14 @@ void sstm_tx_commit() {
 size_t validate() {
 
   while (1) {
-
-    // printf("id %i -- validate - 0\n", sstm_meta.id);
     size_t time = sstm_meta_global.global_lock;
+
+    // if there is a writer we loop
     if((time & 1) != 0) {
       continue;
     }
 
-    // printf("id %i -- validate - 1\n", sstm_meta.id);
-
-
+    // check the previous read value
     int i;
     for (i = 0; i < sstm_meta.readers.size; i++) {
       cell_t* cell = &sstm_meta.readers.array[i];
@@ -177,14 +162,21 @@ size_t validate() {
       }
     }
 
-    // printf("id %i -- validate - 2\n", sstm_meta.id);
-
-
     if (time == sstm_meta_global.global_lock) {
       return time;
     }
   }
 }
+
+void clear_transaction() {
+  // reset the readers and writers lists
+  sstm_meta.readers.size = 0;
+  sstm_meta.writers.size = 0;
+}
+
+/*
+ * LIST UTILITY FUNCTIONS
+ */ 
 
 void init_list(list_t* ls) {
   ls->size = 0;
@@ -194,9 +186,10 @@ void init_list(list_t* ls) {
 
 void append_list(list_t* ls, volatile uintptr_t* address, uintptr_t value) {
 
+  // extend the capacity of the list if needed
   while (ls->size >= ls->capacity) {
     ls->array = realloc(ls->array, ls->capacity * LIST_EXPEND_FACTOR * sizeof(cell_t));
-    ls->capacity *= 2;
+    ls->capacity *= LIST_EXPEND_FACTOR;
   }
 
   ls->array[ls->size].address = address;
@@ -207,11 +200,6 @@ void append_list(list_t* ls, volatile uintptr_t* address, uintptr_t value) {
 void free_list(list_t* ls) {
   free(ls->array);
   ls->array = NULL;
-}
-
-void clear_transaction() {
-  sstm_meta.readers.size = 0;
-  sstm_meta.writers.size = 0;
 }
 
 
