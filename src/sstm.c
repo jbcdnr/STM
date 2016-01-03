@@ -8,11 +8,16 @@ sstm_metadata_global_t sstm_meta_global; /* global metadata */
    (e.g., allocates the locks that the system uses ) 
 */
 void sstm_start() {
+
+  PRINTD("START GLOBAL 0\n");
+
   sstm_meta_global.clock = 0;
   int i;
-  for(i = 0; i < HASH_MODULO; i++) {
+  for(i = 0; i < HASH_MODULO; i++) { // TODO useful ?
     sstm_meta_global.locks[i] = 0;
   }
+
+  PRINTD("START GLOBAL 1\n");
 }
 
 /* terminates the TM runtime
@@ -26,6 +31,9 @@ void sstm_stop() {
    (e.g., allocate a thread local counter)
  */
 void sstm_thread_start() {
+
+  PRINTD("START THREAD 0\n");
+
   init_array_list(&sstm_meta.read_set);
   // TODO check if need to put writer set to NULL
 }
@@ -55,6 +63,8 @@ inline uintptr_t sstm_tx_load(volatile uintptr_t* addr) {
   size_t before = sstm_meta_global.locks[hash];
   size_t value;
 
+  PRINTD("LOAD addr %i - lock %i\n", addr, before);
+
   // lock is owned by someone
   if (before & 1) {
     // it is mine
@@ -75,25 +85,29 @@ inline uintptr_t sstm_tx_load(volatile uintptr_t* addr) {
       TX_ABORT(10);
     }
   } else {
+    PRINTD("LOAD nobody owns\n");
     value = *addr;
     size_t after = sstm_meta_global.locks[hash];
 
     if (after != before) { // inconsistent read
+      PRINTD("LOAD abort inconsistent\n");
       TX_ABORT(10);
     }
 
-    // check if we must extend the snapshot
-    if (sstm_meta.read_snapshot_timestamp < after) {
-      int i;
-      for (i = 0; i < sstm_meta.read_set.size; i++) {
-        record_t* record = &sstm_meta.read_set.array[i];
-        if (record->version != sstm_meta_global.locks[hash_address(record->address)]) {
-          TX_ABORT(10);
-        }
-      }
-      // update time stamp of snapshot
-      sstm_meta.read_snapshot_timestamp = after;
-    }
+    // // check if we must extend the snapshot
+    // if (sstm_meta.read_snapshot_timestamp < after) {
+    //   PRINTD("LOAD must create snapshot\n");
+    //   int i;
+    //   for (i = 0; i < sstm_meta.read_set.size; i++) {
+    //     record_t* record = &sstm_meta.read_set.array[i];
+    //     if (record->version != sstm_meta_global.locks[hash_address(record->address)]) {
+    //       PRINTD("LOAD abort snapshot\n");
+    //       TX_ABORT(10);
+    //     }
+    //   }
+    //   // update time stamp of snapshot
+    //   sstm_meta.read_snapshot_timestamp = after;
+    // }
 
     append_array_list(&sstm_meta.read_set, addr, after, 0); // we don't care about the read value
   }
@@ -111,6 +125,8 @@ inline void sstm_tx_store(volatile uintptr_t* addr, uintptr_t val) {
   size_t hash = hash_address(addr);
   size_t lock = sstm_meta_global.locks[hash];
 
+  PRINTD("STORE addr %i - val %i - lock %i\n", addr, val, lock);
+
   size_t alreadyIn = 0;
 
   // owned by someone
@@ -119,31 +135,41 @@ inline void sstm_tx_store(volatile uintptr_t* addr, uintptr_t val) {
     if (lock >> 1 == sstm_meta.id) {
       alreadyIn = 1;
     } else { // someone else
-      TX_ABORT(10);
+      TX_ABORT(1);
     }
   } 
 
   if(alreadyIn) {
+    PRINTD("STORE already in lock\n");
     // check if we have written in it
     nodee_t* curr = sstm_meta.write_set[hash];
     while (curr != NULL && curr->record.address != addr) {
       curr = curr->next;
     }
     if (curr != NULL) {
+      PRINTD("STORE already written in value\n");
       curr->record.value = val;
       return;
     } 
   } else { // need to acquire the lock
     size_t prev;
     while (1) {
-      prev = CAS_U64(&sstm_meta.write_set[hash], lock, (sstm_meta.id << 1) | 1);
+      PRINTD("STORE try new lock value %i\n", (sstm_meta.id << 1) | 1);
+      // TODO problem here
+
+      // prev = CAS_U64(&sstm_meta.write_set[hash], 1000, 2000);
+      // PRINTD("STORE lock %i - return %i\n", sstm_meta.write_set[hash], prev);
+
+      prev = CAS_U64(&sstm_meta_global.locks[hash], lock, (sstm_meta.id << 1) | 1);
+      PRINTD("STORE lock %i - return %i\n", sstm_meta_global.locks[hash], prev);
       if (lock == prev) { // success
+        PRINTD("STORE lock acquired\n");
         break;
       }
       if (prev & 1) {
-        TX_ABORT(10);
+        PRINTD("STORE abort\n");
+        TX_ABORT(2);
       }
-      lock = prev;
     }
   }
 
@@ -154,6 +180,8 @@ inline void sstm_tx_store(volatile uintptr_t* addr, uintptr_t val) {
   newHead->record.version = 0; // we don't care about version
   newHead->next = sstm_meta.write_set[hash];
   sstm_meta.write_set[hash] = newHead;
+
+  PRINTD("AFTER STORE lock %i\n", sstm_meta_global.locks[hash]);
 }
 
 /* cleaning up in case of an abort 
@@ -171,9 +199,14 @@ void sstm_tx_cleanup() {
  */
 void sstm_tx_commit() {
 
+  PRINTD("COMMIT 0\n");
+
   size_t timestamp = IAF_U64(&sstm_meta_global.clock);
 
   sstm_alloc_on_commit(); // free the memory
+
+
+  PRINTD("COMMIT 1\n");
 
   // write all the values
   int i;
@@ -181,8 +214,11 @@ void sstm_tx_commit() {
     nodee_t* curr = sstm_meta.write_set[i];
 
     while (curr != NULL) {
+      PRINTD("COMMIT 4 -- %i\n", curr);
+      PRINTD("COMMIT 4 -- %i\n", curr->record.address);
       *curr->record.address = curr->record.value;
       curr = curr->next;
+      PRINTD("COMMIT 5\n");
     }
 
     // change the version
@@ -190,6 +226,8 @@ void sstm_tx_commit() {
       CAS_U64(&sstm_meta_global.locks[i], sstm_meta_global.locks[i], timestamp << 1);
     }
   }
+
+  PRINTD("COMMIT 7\n");
 
   clear_transaction();
   sstm_meta.n_commits++;		
