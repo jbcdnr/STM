@@ -8,7 +8,11 @@ sstm_metadata_global_t sstm_meta_global; /* global metadata */
    (e.g., allocates the locks that the system uses ) 
 */
 void sstm_start() {
-  sstm_meta_global.global_lock = 0;
+  sstm_meta_global.clock = 0;
+  int i;
+  for(i = 0; i < HASH_MODULO; i++) {
+    sstm_meta_global.locks[i] = 0;
+  }
 }
 
 /* terminates the TM runtime
@@ -22,8 +26,8 @@ void sstm_stop() {
    (e.g., allocate a thread local counter)
  */
 void sstm_thread_start() {
-  init_list(&sstm_meta.readers);
-  init_list(&sstm_meta.writers);
+  init_array_list(&sstm_meta.read_set);
+  // TODO check if need to put writer set to NULL
 }
 
 /* terminates thread local data
@@ -34,8 +38,7 @@ void sstm_thread_start() {
 void
 sstm_thread_stop()
 {
-  free_list(&sstm_meta.readers);
-  free_list(&sstm_meta.writers);
+  free_array_list(&sstm_meta.read_set);
 
   __sync_fetch_and_add(&sstm_meta_global.n_commits, sstm_meta.n_commits);
   __sync_fetch_and_add(&sstm_meta_global.n_aborts, sstm_meta.n_aborts);
@@ -46,60 +49,111 @@ sstm_thread_stop()
  * On a more complex than GL-STM algorithm,
  * you need to do more work than simply reading the value.
 */
- inline uintptr_t
- sstm_tx_load(volatile uintptr_t* addr)
- { 
+inline uintptr_t sstm_tx_load(volatile uintptr_t* addr) {
 
-  // printf("id %i -- load - 0\n", sstm_meta.id);
-  // check if written in addr and return value if so
-  int i;
-  for (i = 0; i < sstm_meta.writers.size; i++) {
-    cell_t* cell = &sstm_meta.writers.array[i];
-    if(cell->address == addr) {
-      return cell->value;
+  size_t hash = hash_address(addr);
+  size_t before = sstm_meta_global.locks[hash];
+  size_t value;
+
+  // lock is owned by someone
+  if (before & 1) {
+    // it is mine
+    if (before >> 1 == sstm_meta.id) {
+      // check if we have written in it
+      nodee_t* curr = sstm_meta.write_set[hash];
+      while (curr != NULL && curr->record.address != addr) {
+        curr = curr->next;
+      }
+
+      // if not written in, read it otherwise take last written value
+      if(curr == NULL) {
+        value = *addr;
+      } else {
+        value = curr->record.value;
+      }
+    } else { // hold by someone else
+      TX_ABORT(10);
     }
+  } else {
+    value = *addr;
+    size_t after = sstm_meta_global.locks[hash];
+
+    if (after != before) { // inconsistent read
+      TX_ABORT(10);
+    }
+
+    // check if we must extend the snapshot
+    if (sstm_meta.read_snapshot_timestamp < after) {
+      int i;
+      for (i = 0; i < sstm_meta.read_set.size; i++) {
+        record_t* record = &sstm_meta.read_set.array[i];
+        if (record->version != sstm_meta_global.locks[hash_address(record->address)]) {
+          TX_ABORT(10);
+        }
+      }
+      // update time stamp of snapshot
+      sstm_meta.read_snapshot_timestamp = after;
+    }
+
+    append_array_list(&sstm_meta.read_set, addr, after, 0); // we don't care about the read value
   }
 
-  // printf("id %i -- load - 1\n", sstm_meta.id);
 
-  uintptr_t val = *addr;
-  while (sstm_meta.snapshot != sstm_meta_global.global_lock) {
-    sstm_meta.snapshot = validate();
-    val = *addr;
-  }
-
-  // printf("id %i -- load - 2\n", sstm_meta.id);
-
-  append_list(&sstm_meta.readers, addr, val);
-
-  // printf("id %i -- load - 3\n", sstm_meta.id);
-
-  return val;
+  return value;
 }
 
 /* transactionally writes val in addr
  * On a more complex than GL-STM algorithm,
  * you need to do more work than simply reading the value.
 */
- inline void
- sstm_tx_store(volatile uintptr_t* addr, uintptr_t val)
- {
-  // printf("id %i -- store - 0\n", sstm_meta.id);
-  // update old value if any
-  int i;
-  for (i = 0; i < sstm_meta.writers.size; i++) {
-    cell_t* cell = &sstm_meta.writers.array[i];
-    if(cell->address == addr) {
-      cell->value = val;
+inline void sstm_tx_store(volatile uintptr_t* addr, uintptr_t val) {
+
+  size_t hash = hash_address(addr);
+  size_t lock = sstm_meta_global.locks[hash];
+
+  size_t alreadyIn = 0;
+
+  // owned by someone
+  if (lock & 1) {
+    // myself
+    if (lock >> 1 == sstm_meta.id) {
+      alreadyIn = 1;
+    } else { // someone else
+      TX_ABORT(10);
+    }
+  } 
+
+  if(alreadyIn) {
+    // check if we have written in it
+    nodee_t* curr = sstm_meta.write_set[hash];
+    while (curr != NULL && curr->record.address != addr) {
+      curr = curr->next;
+    }
+    if (curr != NULL) {
+      curr->record.value = val;
       return;
+    } 
+  } else { // need to acquire the lock
+    size_t prev;
+    while (1) {
+      prev = CAS_U64(&sstm_meta.write_set[hash], lock, (sstm_meta.id << 1) | 1);
+      if (lock == prev) { // success
+        break;
+      }
+      if (prev & 1) {
+        TX_ABORT(10);
+      }
+      lock = prev;
     }
   }
 
-  // printf("id %i -- store - 1\n", sstm_meta.id);
-
-  append_list(&sstm_meta.writers, addr, val);
-
-  // printf("id %i -- store - 2\n", sstm_meta.id);
+  // add the new edit to the set
+  nodee_t* newHead = malloc(sizeof(nodee_t));
+  newHead->record.value = val;
+  newHead->record.address = addr;
+  newHead->record.version = 0; // we don't care about version
+  newHead->next = sstm_meta.write_set[hash];
+  sstm_meta.write_set[hash] = newHead;
 }
 
 /* cleaning up in case of an abort 
@@ -117,89 +171,81 @@ void sstm_tx_cleanup() {
  */
 void sstm_tx_commit() {
 
-  if (sstm_meta.writers.size > 0) {
+  size_t timestamp = IAF_U64(&sstm_meta_global.clock);
 
-    while (CAS_U64(
-      &sstm_meta_global.global_lock, 
-      sstm_meta.snapshot, 
-      sstm_meta.snapshot + 1) != sstm_meta.snapshot) 
-    {
-      sstm_meta.snapshot = validate();
+  sstm_alloc_on_commit(); // free the memory
+
+  // write all the values
+  int i;
+  for (i=0; i < HASH_MODULO; i++) {
+    nodee_t* curr = sstm_meta.write_set[i];
+
+    while (curr != NULL) {
+      *curr->record.address = curr->record.value;
+      curr = curr->next;
     }
 
-    int i;
-    for (i = 0; i < sstm_meta.writers.size; i++) {
-      cell_t* cell = &sstm_meta.writers.array[i];
-      *(cell->address) = cell->value;
-    }   
-
-    sstm_alloc_on_commit();
-    sstm_meta_global.global_lock = sstm_meta.snapshot + 2;
-
+    // change the version
+    if (sstm_meta.write_set[i] != NULL) {
+      CAS_U64(&sstm_meta_global.locks[i], sstm_meta_global.locks[i], timestamp << 1);
+    }
   }
 
   clear_transaction();
   sstm_meta.n_commits++;		
 }
 
-
-size_t validate() {
-
-  while (1) {
-    size_t time = sstm_meta_global.global_lock;
-
-    // if there is a writer we loop
-    if((time & 1) != 0) {
-      continue;
-    }
-
-    // check the previous read value
-    int i;
-    for (i = 0; i < sstm_meta.readers.size; i++) {
-      cell_t* cell = &sstm_meta.readers.array[i];
-      if(*cell->address != cell->value) {
-        TX_ABORT(1000);
-      }
-    }
-
-    if (time == sstm_meta_global.global_lock) {
-      return time;
-    }
-  }
-}
-
 void clear_transaction() {
   // reset the readers and writers lists
-  sstm_meta.readers.size = 0;
-  sstm_meta.writers.size = 0;
+  int i;
+  for (i=0; i < HASH_MODULO; i++) {
+    nodee_t* curr = sstm_meta.write_set[i];
+    free_linked_list(curr);
+    sstm_meta.write_set[i] = NULL;
+  }
+  sstm_meta.read_set.size = 0;
+}
+
+size_t hash_address(volatile uintptr_t* addr) {
+  return ((size_t) addr / 4) % HASH_MODULO;
 }
 
 /*
  * LIST UTILITY FUNCTIONS
  */ 
 
-void init_list(list_t* ls) {
+void init_array_list(array_list_t* ls) {
   ls->size = 0;
   ls->capacity = LIST_INITIAL_SIZE;
-  ls->array = calloc(LIST_INITIAL_SIZE, sizeof(cell_t));
+  ls->array = calloc(LIST_INITIAL_SIZE, sizeof(record_t));
 }
 
-void append_list(list_t* ls, volatile uintptr_t* address, uintptr_t value) {
+void append_array_list(array_list_t* ls, volatile uintptr_t* address, uintptr_t value, size_t version) {
 
-  // extend the capacity of the list if needed
+  // extend the capacity of the array_list if needed
   while (ls->size >= ls->capacity) {
-    ls->array = realloc(ls->array, ls->capacity * LIST_EXPEND_FACTOR * sizeof(cell_t));
+    ls->array = realloc(ls->array, ls->capacity * LIST_EXPEND_FACTOR * sizeof(record_t));
     ls->capacity *= LIST_EXPEND_FACTOR;
   }
 
   ls->array[ls->size].address = address;
   ls->array[ls->size].value = value;
+  ls->array[ls->size].version = version;
   ls->size++;
 }
 
-void free_list(list_t* ls) {
+void free_array_list(array_list_t* ls) {
   free(ls->array);
   ls->array = NULL;
+}
+
+void free_linked_list(nodee_t* ls) {
+  nodee_t* next;
+  while (ls != NULL) {
+    next = ls->next;
+    free(ls);
+    ls = next;
+  }
 }
 
 

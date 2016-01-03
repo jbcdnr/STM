@@ -26,32 +26,44 @@ extern "C" {
 
 #define LIST_INITIAL_SIZE 32
 #define LIST_EXPEND_FACTOR 4
+#define HASH_MODULO 1024
 
-  typedef struct cell_t
+  typedef struct record_t
   {
-    uintptr_t* address;
+    volatile uintptr_t* address;
     uintptr_t value;
-  } cell_t;
+    size_t version;
+  } record_t;
 
-  struct list_t;
-  typedef struct list_t
+  struct nodee_t;
+  typedef struct nodee_t
   {
-    cell_t* array;
+    record_t record;
+    struct nodee_t* next;
+  } nodee_t;
+
+  typedef struct array_list_t
+  {
+    record_t* array;
     size_t size;
     size_t capacity;
-  } list_t;
+  } array_list_t;
 
-  void init_list(list_t* ls);
+  size_t hash_address(volatile uintptr_t* addr);
 
-  void append_list(list_t* ls, volatile uintptr_t* address, uintptr_t value);
+  void init_array_list(array_list_t* ls);
 
-  void free_list(list_t* ls) ;
+  void append_array_list(array_list_t* ls, volatile uintptr_t* address, uintptr_t value, size_t version);
+
+  void free_array_list(array_list_t* ls);
+
+  void free_linked_list(nodee_t* ls);
 
   typedef struct sstm_metadata
   {
-    size_t snapshot;
-    list_t readers;
-    list_t writers;
+    array_list_t read_set;
+    size_t read_snapshot_timestamp;
+    nodee_t* write_set[HASH_MODULO]; // TODO put to NULL
 
     sigjmp_buf env;		/* Environment for setjmp/longjmp */
     size_t id;
@@ -61,7 +73,9 @@ extern "C" {
 
   typedef struct sstm_metadata_global
   {
-    volatile size_t global_lock;
+    volatile size_t clock;
+    volatile size_t locks[HASH_MODULO];
+
     size_t n_commits;
     size_t n_aborts;
   } sstm_metadata_global_t;
@@ -103,9 +117,6 @@ extern sstm_metadata_global_t sstm_meta_global;
 	sstm_tx_cleanup();				\
 	PRINTD("|| restarting due to %d\n", reason);	\
       }							\
-    do {			\
-      sstm_meta.snapshot = sstm_meta_global.global_lock;    \
-    } while ((sstm_meta.snapshot & 1) != 0); \
   }
 
 #define TX_COMMIT()				\

@@ -19,6 +19,7 @@ void
 sstm_tx_free(void* mem)
 {
   assert(sstm_freeing.n_frees < SSTM_ALLOC_MAX_ALLOCS);
+  sstm_tx_store((volatile uintptr_t*) mem, (uintptr_t) 0);
   sstm_allocator.mem[sstm_freeing.n_frees++] = mem;
 }
 
